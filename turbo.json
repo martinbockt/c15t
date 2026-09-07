@@ -6,51 +6,63 @@
 		"build": {
 			"dependsOn": ["^build"],
 			"inputs": ["$TURBO_DEFAULT$", ".env*"],
-			"outputs": [".next/**", "!.next/cache/**", "dist/**", "dist-types/**"],
+			"outputs": [
+				".next/**",
+				"!.next/cache/**",
+				"dist/**",
+				"dist-types/**",
+				"AGENTS.md",
+				"docs/**",
+				"src/version.ts"
+			],
 			"env": ["WITH_RSDOCTOR"]
 		},
 		"c15t#build": {
 			"dependsOn": ["^build"],
-			"inputs": [
-				"$TURBO_DEFAULT$",
-				".env*",
-				"../../docs/**",
-				"../../scripts/agent-docs/**"
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": [
+				"dist/**",
+				"dist-types/**",
+				"AGENTS.md",
+				"docs/**",
+				"src/version.ts"
 			],
-			"outputs": ["dist/**", "dist-types/**", "docs/**"],
 			"env": ["WITH_RSDOCTOR"]
 		},
 		"@c15t/react#build": {
 			"dependsOn": ["^build"],
-			"inputs": [
-				"$TURBO_DEFAULT$",
-				".env*",
-				"../../docs/**",
-				"../../scripts/agent-docs/**"
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": [
+				"dist/**",
+				"dist-types/**",
+				"AGENTS.md",
+				"docs/**",
+				"src/version.ts"
 			],
-			"outputs": ["dist/**", "dist-types/**", "docs/**"],
 			"env": ["WITH_RSDOCTOR"]
 		},
 		"@c15t/nextjs#build": {
 			"dependsOn": ["^build"],
-			"inputs": [
-				"$TURBO_DEFAULT$",
-				".env*",
-				"../../docs/**",
-				"../../scripts/agent-docs/**"
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": [
+				"dist/**",
+				"dist-types/**",
+				"AGENTS.md",
+				"docs/**",
+				"src/version.ts"
 			],
-			"outputs": ["dist/**", "dist-types/**", "docs/**"],
 			"env": ["WITH_RSDOCTOR"]
 		},
 		"@c15t/backend#build": {
 			"dependsOn": ["^build"],
-			"inputs": [
-				"$TURBO_DEFAULT$",
-				".env*",
-				"../../docs/**",
-				"../../scripts/agent-docs/**"
+			"inputs": ["$TURBO_DEFAULT$", ".env*"],
+			"outputs": [
+				"dist/**",
+				"dist-types/**",
+				"AGENTS.md",
+				"docs/**",
+				"src/version.ts"
 			],
-			"outputs": ["dist/**", "dist-types/**", "docs/**"],
 			"env": ["WITH_RSDOCTOR"]
 		},
 		"@c15t/benchmarking#build": {
@@ -184,7 +196,7 @@
 			"outputs": ["report/**", "dist/**"]
 		},
 		"test": {
-			"dependsOn": ["build", "^build", "transit", "@c15t/vitest-config#build"],
+			"dependsOn": ["build", "^build", "transit"],
 			"outputs": [
 				"coverage/coverage-summary.json",
 				"coverage/coverage-final.json",
@@ -222,7 +234,7 @@
 			"outputs": [".benchmarks/**"]
 		},
 		"@c15t/scripts#test": {
-			"dependsOn": ["build", "^build", "transit", "@c15t/vitest-config#build"],
+			"dependsOn": ["build", "^build", "transit"],
 			"outputs": [
 				"coverage/coverage-summary.json",
 				"coverage/coverage-final.json",

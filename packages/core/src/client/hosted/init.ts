@@ -23,7 +23,7 @@ async function createFallbackContext(
 /**
  * Provides offline mode fallback for showConsentBanner API.
  * Simulates the behavior of OfflineClient when API requests fail.
- * In fallback mode, fetches GVL from gvl.consent.io when IAB is enabled.
+ * In fallback mode, fetches GVL from gvl.inth.app when IAB is enabled.
  * @internal
  */
 export async function offlineFallbackForConsentBanner(
@@ -40,7 +40,13 @@ export async function offlineFallbackForConsentBanner(
 		try {
 			const fetchGVL = iabConfig._module?.fetchGVL;
 			if (fetchGVL) {
-				gvl = await fetchGVL(iabConfig.vendorIds);
+				const acceptLanguage = options?.headers?.['accept-language'];
+				gvl = await fetchGVL(
+					iabConfig.vendorIds,
+					acceptLanguage
+						? { headers: { 'accept-language': acceptLanguage } }
+						: undefined
+				);
 			}
 		} catch (error) {
 			console.warn('Failed to fetch GVL in offline fallback:', error);

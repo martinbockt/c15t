@@ -166,7 +166,7 @@ export type IABManager = IABState & IABActions;
  * @internal
  */
 export interface CMPApiConfig {
-	/** CMP ID registered with IAB Europe. Provided by the backend (consent.io) or client config. */
+	/** CMP ID registered with IAB Europe. Provided by the backend (inth.com) or client config. */
 	cmpId?: number;
 
 	/** CMP version (default: package version from ~/cmp-defaults) */
@@ -259,7 +259,8 @@ export interface IABModule {
 
 	/** Fetches the Global Vendor List. Used by client fallback paths. */
 	fetchGVL?: (
-		vendorIds?: number[]
+		vendorIds?: number[],
+		options?: { headers?: Record<string, string> }
 	) => Promise<import('../../types/iab-tcf').GlobalVendorList | null>;
 }
 
@@ -273,7 +274,7 @@ export interface IABConfig {
 	 * Enable IAB TCF 2.3 mode.
 	 *
 	 * When enabled, c15t will:
-	 * - Fetch GVL from gvl.consent.io
+	 * - Fetch GVL from gvl.inth.app
 	 * - Initialize __tcfapi CMP API
 	 * - Generate TC Strings for IAB compliance
 	 *
@@ -295,7 +296,7 @@ export interface IABConfig {
 	/**
 	 * CMP ID registered with IAB Europe.
 	 *
-	 * When using consent.io as the backend, this is automatically provided
+	 * When using inth.com as the backend, this is automatically provided
 	 * via the `/init` endpoint — no client-side configuration needed.
 	 *
 	 * Only set this if you self-host and have your own CMP registration.
@@ -395,4 +396,4 @@ export const IAB_STORAGE_KEYS = {
  *
  * @internal
  */
-export const GVL_ENDPOINT = 'https://gvl.consent.io';
+export const GVL_ENDPOINT = 'https://gvl.inth.app';

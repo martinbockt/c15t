@@ -1,5 +1,79 @@
 # @c15t/translations
 
+## 2.2.1
+
+### Patch Changes
+
+- Restore `enabled: false` so all client-side consents are granted, initialization requests are skipped, and consent-gated scripts load immediately.
+
+  Fix `www` handling in CORS origin matching. `*.example.com` now accepts `https://www.example.com`, and a schemeless `www.example.com` entry accepts both the apex and `www` forms.
+
+  Support native WebView app schemes in `trustedOrigins` (`capacitor://localhost`, `ionic://localhost`, custom `iosScheme` values), matched on both scheme and host.
+
+  Declare `hono` as `^4.12.34` rather than an exact pin so you can take Hono security releases without waiting for a new `@c15t/backend`.
+
+## 2.2.0
+
+### Patch Changes
+
+- Read the [c15t 2.2.0 changelog](https://c15t.com/changelog/2.2.0) for the complete release notes and upgrade context.
+
+## 2.2.0-canary-20260727202135
+
+### Minor Changes
+
+- 1d24803: Add Gujarati (`gu`) translations for cookie banner, consent dialog, and IAB TCF consent UI copy.
+- 05b0abb: Add Hindi (`hi`) translations for cookie banner, consent dialog, and IAB TCF consent UI copy.
+- 0c97773: Add consent-aware Google Maps and YouTube components for React and Next.js,
+  plus `useConsentScript` for building custom SDK integrations.
+
+  - `GoogleMap` keeps the Maps JavaScript API off the page until consent, shares
+    one page-level loader across map instances, supports retries and loader
+    configuration, and provides accessible blocked, loading, and error states.
+  - `YouTubeEmbed` keeps the iframe unmounted until consent and provides a
+    responsive, privacy-enhanced embed with type-safe URL configuration.
+  - Add customizable `frame.loading` and `frame.error` messages for integration
+    loading and failure states.
+
+### Patch Changes
+
+- 16a1f82: Dependency audit for the next release: remove unused `@orpc/*` dependencies from `@c15t/backend` and `@c15t/node-sdk`, update runtime dependencies (hono 4.12.27, valibot 1.4.2, defu 6.1.7, jose 6.2.3, zod 4.4.3, zustand 5.0.14, xstate 5.32.4, and more), and force security floors for kysely (SQL injection fixes) and protobufjs via workspace overrides. Builds now use TypeScript 7 (native compiler) with rslib 0.23 for type checking and declaration emit; emitted types are semantically unchanged.
+- c8690f9: Fix a stray German word in the Latvian IAB custom vendors notice: "pamatojoties auf jūsu piekrišanu" is now "pamatojoties uz jūsu piekrišanu".
+- c8690f9: Translate the second sentence of the IAB preference-center consent storage notice (`iab.preferenceCenter.footer.consentStorage`) — "The storage duration may be refreshed when you update your preferences." — which was previously left in English in all 32 non-English locales.
+
+## 2.1.0
+
+### Minor Changes
+
+- 4a89092: Expanded the script loader with a registry-backed provider system and a much
+  broader set of consent-aware integrations. New helpers cover analytics,
+  advertising pixels, functional tools, and tag managers, including Ahrefs,
+  Cloudflare Web Analytics, Fathom, Hotjar, Matomo, Microsoft Clarity, Mixpanel,
+  Plausible, PromptWatch, Rybbit, Segment, Umami, Vercel Analytics, Reddit Pixel,
+  Snapchat Pixel, and Crisp/Intercom.
+
+  Provider manifests now share common utilities for script URL resolution, boolean
+  data attributes, install-step builders, Google consent mapping, and lifecycle
+  execution. The package also includes registry metadata, focused provider tests,
+  and engine coverage so script helpers resolve predictable loader URLs,
+  attributes, consent callbacks, and queued vendor calls.
+
+  Google Tag and Google Tag Manager boot timestamps now resolve during script
+  lifecycle execution instead of helper construction, which keeps documented setup
+  patterns compatible with Next.js Cache Components prerendering.
+
+  PostHog now supports explicit EU/US region selection, keeps the bootstrap script
+  host aligned with an explicit API host, and exposes loading modes for immediate
+  cookieless consent sync, consent-gated loading, or disabling the helper without
+  issuing a PostHog network request.
+
+  Updated the docs and CLI generation prompts so these providers are discoverable
+  from the integration docs and script-loader setup flows.
+
+### Patch Changes
+
+- 1588a24: Fix German translations to use consistent casing and tone.
+
 ## 2.0.0
 
 ### Major Changes

@@ -8,7 +8,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createConsentManagerStore } from '..';
 import { STORAGE_KEY_V2 } from '../initial-state';
-import type { ConsentStoreState, StoreOptions } from '../type';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock Setup
@@ -83,6 +82,33 @@ describe('Consent Store', () => {
 			expect(state.consents.experience).toBe(false);
 		});
 
+		it('should grant all consents without initializing when disabled', async () => {
+			const store = createConsentManagerStore(mockManager, {
+				enabled: false,
+			});
+			const state = store.getState();
+
+			expect(state.consents).toEqual({
+				necessary: true,
+				marketing: true,
+				measurement: true,
+				functionality: true,
+				experience: true,
+			});
+			expect(state.selectedConsents).toEqual(state.consents);
+			expect(state.hasConsented()).toBe(true);
+			expect(state.activeUI).toBe('none');
+			expect(state.isLoadingConsentInfo).toBe(false);
+			expect(mockManager.init).not.toHaveBeenCalled();
+
+			await expect(state.initConsentManager()).resolves.toBeUndefined();
+			await expect(
+				state.setOverrides({ country: 'US' })
+			).resolves.toBeUndefined();
+			expect(store.getState().overrides).toEqual({ country: 'US' });
+			expect(mockManager.init).not.toHaveBeenCalled();
+		});
+
 		it('should set namespace correctly', () => {
 			const store = createConsentManagerStore(mockManager, {
 				namespace: 'customStore',
@@ -131,6 +157,92 @@ describe('Consent Store', () => {
 			// When stored consent exists, isLoadingConsentInfo is set to false
 			// but the store still initializes with the loading state
 			// The store will update this after initConsentManager runs
+		});
+	});
+
+	describe('unstable_acceptPolicyConsent', () => {
+		it('passes proof fields for suffixed legal-document types', async () => {
+			mockManager.setConsent.mockResolvedValueOnce({
+				ok: true,
+				data: {
+					subjectId: 'sub_2jv6z8n4q9',
+					consentId: 'cns_123',
+					domainId: 'dom_123',
+					domain: 'example.com',
+					type: 'terms_and_conditions_b2b',
+					givenAt: new Date('2026-04-07T00:00:00.000Z'),
+				},
+			});
+			const store = createConsentManagerStore(mockManager);
+
+			await store.getState().unstable_acceptPolicyConsent({
+				type: 'terms_and_conditions_b2b',
+				policyHash: 'sha256:abc123',
+				domain: 'example.com',
+				givenAt: 1_775_520_000_000,
+			});
+
+			expect(mockManager.setConsent).toHaveBeenCalledWith({
+				body: expect.objectContaining({
+					type: 'terms_and_conditions_b2b',
+					policyHash: 'sha256:abc123',
+				}),
+			});
+		});
+
+		it('coalesces concurrent identical policy consent submissions', async () => {
+			mockManager.setConsent.mockResolvedValue({
+				ok: true,
+				data: {
+					subjectId: 'sub_123',
+					consentId: 'cns_123',
+					domainId: 'dom_123',
+					domain: 'example.com',
+					type: 'other',
+					givenAt: new Date('2026-04-07T00:00:00.000Z'),
+				},
+			});
+			const store = createConsentManagerStore(mockManager);
+			const input = {
+				type: 'other' as const,
+				domain: 'example.com',
+				preferences: { necessary: true },
+			};
+
+			const first = store.getState().unstable_acceptPolicyConsent(input);
+			const second = store.getState().unstable_acceptPolicyConsent(input);
+
+			expect(second).toBe(first);
+			expect(mockManager.setConsent).toHaveBeenCalledTimes(1);
+
+			const [firstResult, secondResult] = await Promise.all([first, second]);
+			expect(secondResult.consentId).toBe(firstResult.consentId);
+		});
+
+		it('stores the server-recorded consent time after clamping', async () => {
+			const clientGivenAt = Date.parse('2026-04-08T00:00:00.000Z');
+			const serverGivenAt = new Date('2026-04-07T00:00:00.000Z');
+			mockManager.setConsent.mockResolvedValue({
+				ok: true,
+				data: {
+					subjectId: 'sub_123',
+					consentId: 'cns_123',
+					domainId: 'dom_123',
+					domain: 'example.com',
+					type: 'other',
+					givenAt: serverGivenAt,
+				},
+			});
+			const store = createConsentManagerStore(mockManager);
+
+			const consent = await store.getState().unstable_acceptPolicyConsent({
+				type: 'other',
+				domain: 'example.com',
+				givenAt: clientGivenAt,
+			});
+
+			expect(consent.givenAt).toEqual(serverGivenAt);
+			expect(store.getState().consentInfo?.time).toBe(serverGivenAt.getTime());
 		});
 	});
 
@@ -183,6 +295,21 @@ describe('Consent Store', () => {
 			await new Promise((resolve) => setTimeout(resolve, 100));
 
 			expect(store.getState().selectedConsents.marketing).toBe(true);
+		});
+
+		it('coalesces concurrent identical banner consent saves', async () => {
+			const store = createConsentManagerStore(mockManager);
+
+			const first = store.getState().saveConsents('all', {
+				uiSource: 'banner',
+			});
+			const second = store.getState().saveConsents('all', {
+				uiSource: 'banner',
+			});
+
+			expect(second).toBe(first);
+			await Promise.all([first, second]);
+			expect(mockManager.setConsent).toHaveBeenCalledTimes(1);
 		});
 
 		it('should reset all consents with resetConsents', () => {
@@ -466,6 +593,7 @@ describe('Consent Store', () => {
 
 			store.setState({
 				policyCategories: ['necessary', 'measurement'],
+				policyScopeMode: 'strict',
 			});
 
 			store
@@ -489,6 +617,7 @@ describe('Consent Store', () => {
 			store.setState({
 				consentCategories: ['necessary', 'measurement'],
 				policyCategories: ['necessary', 'measurement'],
+				policyScopeMode: 'strict',
 			});
 
 			store.getState().updateConsentCategories(['experience', 'marketing']);
@@ -842,7 +971,7 @@ describe('Consent Store', () => {
 			expect(store.getState().has(condition)).toBe(true);
 		});
 
-		it('should treat out-of-policy categories as granted in has()', () => {
+		it('should respect out-of-policy category choices in has()', () => {
 			const store = createConsentManagerStore(mockManager);
 
 			store.setState({
@@ -850,14 +979,14 @@ describe('Consent Store', () => {
 				policyScopeMode: 'permissive',
 				consents: {
 					necessary: true,
-					marketing: false,
+					marketing: true,
 					measurement: true,
 					functionality: false,
 					experience: false,
 				},
 			});
 
-			expect(store.getState().has('experience')).toBe(true);
+			expect(store.getState().has('experience')).toBe(false);
 			expect(store.getState().has('marketing')).toBe(true);
 			expect(store.getState().has('measurement')).toBe(true);
 		});
@@ -1132,10 +1261,11 @@ describe('Consent Store', () => {
 			expect(store.getState().consentCategories).toContain('measurement');
 		});
 
-		it('should not add out-of-policy script categories to consentCategories', () => {
+		it('should not add out-of-policy script categories to consentCategories in strict scope mode', () => {
 			const store = createConsentManagerStore(mockManager);
 			store.setState({
 				policyCategories: ['necessary', 'measurement'],
+				policyScopeMode: 'strict',
 				consentCategories: ['necessary', 'measurement'],
 			});
 
@@ -1172,7 +1302,7 @@ describe('Consent Store', () => {
 			const storeCustom = createConsentManagerStore(mockManager, {
 				reloadOnConsentRevoked: false,
 			});
-			// Note: reloadOnConsentRevoked might be in initial state, check actual behavior
+			expect(storeCustom.getState().reloadOnConsentRevoked).toBe(false);
 		});
 
 		it('should apply model configuration', () => {

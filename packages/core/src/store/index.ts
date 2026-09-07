@@ -4,6 +4,10 @@
  * This module provides the main store creation and management functionality.
  */
 
+import {
+	isLegalDocumentType,
+	type PostSubjectOutput,
+} from '@c15t/schema/types';
 import { resolveTranslationInput } from '@c15t/translations';
 import { createStore } from 'zustand/vanilla';
 import type { ConsentManagerInterface } from '../client/client-factory';
@@ -24,7 +28,10 @@ import type { IABConfig } from '../libs/iab-tcf/types';
 import { createIframeManager } from '../libs/iframe-blocker/store';
 import { initConsentManager } from '../libs/init-consent-manager';
 import { createNetworkBlockerManager } from '../libs/network-blocker/store';
-import { filterConsentCategoriesByPolicy } from '../libs/policy';
+import {
+	filterConsentCategoriesByPolicy,
+	shouldEnforcePolicyCategoryScope,
+} from '../libs/policy';
 import { sanitizeSubjectIdentifiers } from '../libs/sanitize-subject-identifiers';
 import { saveConsents } from '../libs/save-consents';
 import { createScriptManager } from '../libs/script-loader';
@@ -41,8 +48,14 @@ import {
 	type ConsentInfo,
 	consentTypes,
 } from '../types/consent-types';
+import { coalesceInFlight } from './coalesce-in-flight';
 import { initialState } from './initial-state';
-import type { ConsentStoreState, StoreOptions } from './type';
+import type {
+	ConsentStoreState,
+	StoreOptions,
+	UnstableLegalDocumentConsentInput,
+	UnstablePolicyConsentInput,
+} from './type';
 
 /**
  * Structure of consent data stored in localStorage.
@@ -61,6 +74,12 @@ interface StoredConsent {
 
 	/** Stored custom vendor LI state (IAB mode only) */
 	iabCustomVendorLegitimateInterests?: Record<string, boolean>;
+}
+
+function isLegalDocumentConsentInput(
+	input: UnstablePolicyConsentInput
+): input is UnstableLegalDocumentConsentInput {
+	return isLegalDocumentType(input.type);
 }
 
 /**
@@ -155,7 +174,7 @@ export const createConsentManagerStore = (
 		initialConsentCategories,
 		initialTranslationConfig: legacyInitialTranslationConfig,
 		initialI18nConfig,
-		enabled: _unusedEnabled,
+		enabled = true,
 		debug: _unusedDebug,
 		// The rest are valid StoreConfig properties
 		...storeConfigOptions
@@ -173,7 +192,46 @@ export const createConsentManagerStore = (
 
 	// Load initial state from localStorage if available
 	const storedConsent = getStoredConsent(options.storageConfig);
+	const getInitialConsentState = (): Partial<ConsentStoreState> => {
+		if (!enabled) {
+			const grantedConsents = consentTypes.reduce((acc, consent) => {
+				acc[consent.name] = true;
+				return acc;
+			}, {} as ConsentState);
+
+			return {
+				consents: grantedConsents,
+				selectedConsents: grantedConsents,
+				consentInfo: { time: Date.now() },
+				activeUI: 'none',
+				isLoadingConsentInfo: false,
+			};
+		}
+
+		if (storedConsent) {
+			return {
+				consents: storedConsent.consents,
+				selectedConsents: storedConsent.consents,
+				consentInfo: storedConsent.consentInfo,
+				user: storedConsent.consentInfo?.externalId
+					? {
+							id: storedConsent.consentInfo.externalId,
+							identityProvider: storedConsent.consentInfo.identityProvider,
+						}
+					: undefined,
+				activeUI: 'none',
+				isLoadingConsentInfo: false,
+			};
+		}
+
+		return {
+			activeUI: 'none',
+			isLoadingConsentInfo: true,
+		};
+	};
 	const consentChangeListeners = new Set<Callback<OnConsentChangedPayload>>();
+	const inFlightConsentSaves = new Map<string, Promise<void>>();
+	const inFlightPolicyConsents = new Map<string, Promise<PostSubjectOutput>>();
 
 	const store = createStore<ConsentStoreState>((set, get) => ({
 		...initialState,
@@ -185,24 +243,7 @@ export const createConsentManagerStore = (
 		...(initialConsentCategories && {
 			consentCategories: initialConsentCategories,
 		}),
-		...(storedConsent
-			? {
-					consents: storedConsent.consents,
-					selectedConsents: storedConsent.consents,
-					consentInfo: storedConsent.consentInfo,
-					user: storedConsent.consentInfo?.externalId
-						? {
-								id: storedConsent.consentInfo.externalId,
-								identityProvider: storedConsent.consentInfo.identityProvider,
-							}
-						: undefined,
-					activeUI: 'none' as const,
-					isLoadingConsentInfo: false,
-				}
-			: {
-					activeUI: 'none' as const,
-					isLoadingConsentInfo: true,
-				}),
+		...getInitialConsentState(),
 		setActiveUI: (ui, options = {}) => {
 			if (ui === 'none' || ui === 'dialog') {
 				set({ activeUI: ui });
@@ -236,21 +277,30 @@ export const createConsentManagerStore = (
 			});
 		},
 
-		saveConsents: async (type, options) =>
-			await saveConsents({
-				manager,
+		saveConsents: (type, options) => {
+			const requestKey = JSON.stringify([
 				type,
-				get,
-				set,
-				options,
-				emitConsentChanged: (payload) => {
-					get().callbacks.onConsentChanged?.(payload);
+				options?.uiSource ?? null,
+				type === 'custom' ? get().selectedConsents : null,
+			]);
 
-					for (const listener of consentChangeListeners) {
-						listener(payload);
-					}
-				},
-			}),
+			return coalesceInFlight(inFlightConsentSaves, requestKey, () =>
+				saveConsents({
+					manager,
+					type,
+					get,
+					set,
+					options,
+					emitConsentChanged: (payload) => {
+						get().callbacks.onConsentChanged?.(payload);
+
+						for (const listener of consentChangeListeners) {
+							listener(payload);
+						}
+					},
+				})
+			);
+		},
 
 		setConsent: (name, value) => {
 			set((state) => {
@@ -288,11 +338,22 @@ export const createConsentManagerStore = (
 			});
 		},
 		setConsentCategories: (types) =>
-			set({
-				consentCategories: filterConsentCategoriesByPolicy(
-					types,
-					get().policyCategories
-				),
+			set(() => {
+				const { policyCategories, policyScopeMode } = get();
+				if (
+					shouldEnforcePolicyCategoryScope(policyCategories, policyScopeMode)
+				) {
+					return {
+						consentCategories: filterConsentCategoriesByPolicy(
+							types,
+							policyCategories
+						),
+					};
+				}
+
+				return {
+					consentCategories: Array.from(new Set(types)),
+				};
 			}),
 		setCallback: (name, callback) => {
 			const currentState = get();
@@ -353,8 +414,12 @@ export const createConsentManagerStore = (
 		},
 		setLocationInfo: (location) => set({ locationInfo: location }),
 
-		initConsentManager: (): Promise<ConsentBannerResponse | undefined> =>
-			initConsentManager({
+		initConsentManager: (): Promise<ConsentBannerResponse | undefined> => {
+			if (!enabled) {
+				return Promise.resolve(undefined);
+			}
+
+			return initConsentManager({
 				manager,
 				ssrData: options.ssrData,
 				backendURL: internalOptions.__internal?.backendURL,
@@ -363,7 +428,8 @@ export const createConsentManagerStore = (
 				iabConfig: iab as IABConfig | undefined,
 				get,
 				set,
-			}),
+			});
+		},
 
 		getDisplayedConsents: () => {
 			const { consentCategories, consentTypes } = get();
@@ -392,15 +458,27 @@ export const createConsentManagerStore = (
 		},
 
 		updateConsentCategories: (newCategories: AllConsentNames[]) => {
+			const {
+				consentCategories: currentConsentCategories,
+				policyCategories,
+				policyScopeMode,
+			} = get();
 			const allCategoriesSet = new Set<AllConsentNames>([
-				...get().consentCategories,
+				...currentConsentCategories,
 				...newCategories,
 			]);
-			const allCategories = filterConsentCategoriesByPolicy(
-				Array.from(allCategoriesSet),
-				get().policyCategories
-			);
-			set({ consentCategories: allCategories });
+			let consentCategories: AllConsentNames[];
+
+			if (shouldEnforcePolicyCategoryScope(policyCategories, policyScopeMode)) {
+				consentCategories = filterConsentCategoriesByPolicy(
+					Array.from(allCategoriesSet),
+					policyCategories
+				);
+			} else {
+				consentCategories = Array.from(allCategoriesSet);
+			}
+
+			set({ consentCategories });
 		},
 
 		identifyUser: async (user: User) => {
@@ -446,146 +524,157 @@ export const createConsentManagerStore = (
 				},
 			});
 		},
-		unstable_acceptPolicyConsent: async (input) => {
-			const currentState = get();
-			const currentInfo = currentState.consentInfo;
-			const subjectId = currentInfo?.subjectId ?? generateSubjectId();
-			const storedIdentifiers = sanitizeSubjectIdentifiers({
-				externalId: currentInfo?.externalId,
-				identityProvider: currentInfo?.identityProvider,
-			});
-			const userIdentifiers = sanitizeSubjectIdentifiers({
-				externalId: currentState.user?.id,
-				identityProvider: currentState.user?.identityProvider,
-			});
-			const inputIdentifiers = sanitizeSubjectIdentifiers({
-				externalId: input.externalId,
-				identityProvider: input.identityProvider,
-			});
-			const externalId =
-				inputIdentifiers.externalId ??
-				storedIdentifiers.externalId ??
-				userIdentifiers.externalId;
-			const identityProvider =
-				inputIdentifiers.identityProvider ??
-				storedIdentifiers.identityProvider ??
-				userIdentifiers.identityProvider;
-			const givenAt = input.givenAt ?? Date.now();
-			const domain =
-				input.domain ??
-				(typeof window !== 'undefined'
-					? window.location.hostname
-					: 'localhost');
-			const isLegalDocumentType =
-				input.type === 'privacy_policy' ||
-				input.type === 'terms_and_conditions' ||
-				input.type === 'dpa';
-			let legalDocumentFields: Record<string, string> = {};
+		unstable_acceptPolicyConsent: (input) => {
+			const requestKey = JSON.stringify([
+				get().consentInfo?.subjectId ?? null,
+				input,
+			]);
 
-			if (isLegalDocumentType) {
-				if (input.documentSnapshotToken) {
-					legalDocumentFields = {
-						documentSnapshotToken: input.documentSnapshotToken,
-					};
-				} else if (input.policyHash) {
-					legalDocumentFields = {
-						policyHash: input.policyHash,
-					};
-				} else if (input.policyId) {
-					legalDocumentFields = {
-						policyId: input.policyId,
-					};
-				} else {
-					throw new Error(
-						'Legal document consent requires documentSnapshotToken, policyHash, or policyId.'
-					);
-				}
-			}
-
-			const response = await manager.setConsent({
-				body: {
-					type: input.type,
-					subjectId,
-					domain,
-					givenAt,
-					uiSource: input.uiSource ?? 'api',
-					...legalDocumentFields,
-					...(input.metadata ? { metadata: input.metadata } : {}),
-					...(input.preferences ? { preferences: input.preferences } : {}),
-					...(externalId ? { externalSubjectId: externalId } : {}),
-					...(identityProvider ? { identityProvider } : {}),
-				},
-			});
-
-			if (!response.ok || !response.data) {
-				const errorMsg =
-					response.error?.message ?? 'Failed to accept policy consent';
-				get().callbacks.onError?.({
-					error: errorMsg,
+			return coalesceInFlight(inFlightPolicyConsents, requestKey, async () => {
+				const currentState = get();
+				const currentInfo = currentState.consentInfo;
+				const subjectId = currentInfo?.subjectId ?? generateSubjectId();
+				const storedIdentifiers = sanitizeSubjectIdentifiers({
+					externalId: currentInfo?.externalId,
+					identityProvider: currentInfo?.identityProvider,
 				});
-				const error = new Error(errorMsg) as Error & {
-					code?: string;
-					details?: Record<string, unknown> | null;
-					status?: number;
+				const userIdentifiers = sanitizeSubjectIdentifiers({
+					externalId: currentState.user?.id,
+					identityProvider: currentState.user?.identityProvider,
+				});
+				const inputIdentifiers = sanitizeSubjectIdentifiers({
+					externalId: input.externalId,
+					identityProvider: input.identityProvider,
+				});
+				const externalId =
+					inputIdentifiers.externalId ??
+					storedIdentifiers.externalId ??
+					userIdentifiers.externalId;
+				const identityProvider =
+					inputIdentifiers.identityProvider ??
+					storedIdentifiers.identityProvider ??
+					userIdentifiers.identityProvider;
+				const domain =
+					input.domain ??
+					(typeof window !== 'undefined'
+						? window.location.hostname
+						: 'localhost');
+				const legalDocumentConsent = isLegalDocumentConsentInput(input);
+				let legalDocumentFields: Record<string, string> = {};
+
+				if (legalDocumentConsent) {
+					if (input.documentSnapshotToken) {
+						legalDocumentFields = {
+							documentSnapshotToken: input.documentSnapshotToken,
+						};
+					} else if (input.policyHash) {
+						legalDocumentFields = {
+							policyHash: input.policyHash,
+						};
+					} else if (input.policyId) {
+						legalDocumentFields = {
+							policyId: input.policyId,
+						};
+					} else {
+						throw new Error(
+							'Legal document consent requires documentSnapshotToken, policyHash, or policyId.'
+						);
+					}
+				}
+
+				const givenAt = input.givenAt ?? Date.now();
+
+				const response = await manager.setConsent({
+					body: {
+						type: input.type,
+						subjectId,
+						domain,
+						givenAt,
+						uiSource: input.uiSource ?? 'api',
+						...legalDocumentFields,
+						...(input.metadata ? { metadata: input.metadata } : {}),
+						...(input.preferences ? { preferences: input.preferences } : {}),
+						...(externalId ? { externalSubjectId: externalId } : {}),
+						...(identityProvider ? { identityProvider } : {}),
+					},
+				});
+
+				if (!response.ok || !response.data) {
+					const errorMsg =
+						response.error?.message ?? 'Failed to accept policy consent';
+					get().callbacks.onError?.({
+						error: errorMsg,
+					});
+					const error = new Error(errorMsg) as Error & {
+						code?: string;
+						details?: Record<string, unknown> | null;
+						status?: number;
+					};
+					error.code = response.error?.code;
+					error.details = response.error?.details ?? null;
+					error.status = response.error?.status;
+					throw error;
+				}
+
+				const consent = {
+					...response.data,
+					givenAt:
+						response.data.givenAt instanceof Date
+							? response.data.givenAt
+							: new Date(response.data.givenAt),
 				};
-				error.code = response.error?.code;
-				error.details = response.error?.details ?? null;
-				error.status = response.error?.status;
-				throw error;
-			}
 
-			const consent = {
-				...response.data,
-				givenAt:
-					response.data.givenAt instanceof Date
-						? response.data.givenAt
-						: new Date(response.data.givenAt),
-			};
+				const latestState = get();
+				const latestInfo = latestState.consentInfo;
+				const nextConsentInfo = {
+					...latestInfo,
+					time: consent.givenAt.getTime(),
+					subjectId,
+					...(externalId ? { externalId } : {}),
+					...(identityProvider ? { identityProvider } : {}),
+				};
 
-			const latestState = get();
-			const latestInfo = latestState.consentInfo;
-			const nextConsentInfo = {
-				...latestInfo,
-				time: givenAt,
-				subjectId,
-				...(externalId ? { externalId } : {}),
-				...(identityProvider ? { identityProvider } : {}),
-			};
-
-			set({
-				consentInfo: nextConsentInfo,
-				...(externalId
-					? {
-							user: {
-								id: externalId,
-								identityProvider,
-							},
-						}
-					: {}),
-			});
-
-			saveConsentToStorage(
-				{
-					consents: latestState.consents,
+				set({
 					consentInfo: nextConsentInfo,
-				},
-				undefined,
-				latestState.storageConfig
-			);
+					...(externalId
+						? {
+								user: {
+									id: externalId,
+									identityProvider,
+								},
+							}
+						: {}),
+				});
 
-			return consent;
+				saveConsentToStorage(
+					{
+						consents: latestState.consents,
+						consentInfo: nextConsentInfo,
+					},
+					undefined,
+					latestState.storageConfig
+				);
+
+				return consent;
+			});
 		},
 
 		setOverrides: async (
 			overrides: ConsentStoreState['overrides']
 		): Promise<ConsentBannerResponse | undefined> => {
 			set({ overrides: { ...get().overrides, ...overrides } });
+			if (!enabled) {
+				return undefined;
+			}
 
 			return await initConsentManager({
 				manager,
 				backendURL: internalOptions.__internal?.backendURL,
 				requestCredentials: internalOptions.__internal?.requestCredentials,
 				initialTranslationConfig: normalizedInitialTranslationConfig,
+				// Without the IAB config, re-initialization skips IAB entirely
+				// and the store keeps a stale GVL (e.g. after a language change).
+				iabConfig: iab as IABConfig | undefined,
 				get,
 				set,
 			});
@@ -641,7 +730,11 @@ export const createConsentManagerStore = (
 			store.getState().identifyUser(options.user);
 		}
 
-		store.getState().initConsentManager();
+		if (enabled) {
+			store.getState().initConsentManager();
+		} else {
+			store.getState().updateScripts();
+		}
 	}
 
 	return store;

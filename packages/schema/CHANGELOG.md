@@ -1,5 +1,57 @@
 # @c15t/schema
 
+## 2.2.0
+
+### Minor Changes
+
+- Read the [c15t 2.2.0 changelog](https://c15t.com/changelog/2.2.0) for the complete release notes and upgrade context.
+
+## 2.1.1-canary-20260727202135
+
+### Patch Changes
+
+- 1d24803: Add Gujarati (`gu`) translations for cookie banner, consent dialog, and IAB TCF consent UI copy.
+- 05b0abb: Add Hindi (`hi`) translations for cookie banner, consent dialog, and IAB TCF consent UI copy.
+- 8c004cf: Improve generated OpenAPI request schemas for consent, subject, and legal-document endpoints.
+- 16a1f82: Dependency audit for the next release: remove unused `@orpc/*` dependencies from `@c15t/backend` and `@c15t/node-sdk`, update runtime dependencies (hono 4.12.27, valibot 1.4.2, defu 6.1.7, jose 6.2.3, zod 4.4.3, zustand 5.0.14, xstate 5.32.4, and more), and force security floors for kysely (SQL injection fixes) and protobufjs via workspace overrides. Builds now use TypeScript 7 (native compiler) with rslib 0.23 for type checking and declaration emit; emitted types are semantically unchanged.
+- 5406a8d: Match legal-document policy types (`privacy_policy`, `dpa`, `terms_and_conditions`) by prefix so suffixed variants like `terms_and_conditions_b2b` are accepted, letting multiple policies of one family be active at once. Unknown types are still rejected.
+- ca7784f: Prevent duplicate consent records from concurrent identical submissions. Concurrent in-flight client saves with the same intent are coalesced, and backend submissions derive the consent primary key from tenant, subject, domain, policy, and `givenAt`, so identical requests collide on the key every deployed database already enforces. Scope legacy duplicate lookups to the current tenant, and reject timestamps outside JavaScript's representable `Date` range before deriving the ID.
+
+## 2.1.0
+
+### Minor Changes
+
+- 4a89092: Expanded the script loader with a registry-backed provider system and a much
+  broader set of consent-aware integrations. New helpers cover analytics,
+  advertising pixels, functional tools, and tag managers, including Ahrefs,
+  Cloudflare Web Analytics, Fathom, Hotjar, Matomo, Microsoft Clarity, Mixpanel,
+  Plausible, PromptWatch, Rybbit, Segment, Umami, Vercel Analytics, Reddit Pixel,
+  Snapchat Pixel, and Crisp/Intercom.
+
+  Provider manifests now share common utilities for script URL resolution, boolean
+  data attributes, install-step builders, Google consent mapping, and lifecycle
+  execution. The package also includes registry metadata, focused provider tests,
+  and engine coverage so script helpers resolve predictable loader URLs,
+  attributes, consent callbacks, and queued vendor calls.
+
+  Google Tag and Google Tag Manager boot timestamps now resolve during script
+  lifecycle execution instead of helper construction, which keeps documented setup
+  patterns compatible with Next.js Cache Components prerendering.
+
+  PostHog now supports explicit EU/US region selection, keeps the bootstrap script
+  host aligned with an explicit API host, and exposes loading modes for immediate
+  cookieless consent sync, consent-gated loading, or disabling the helper without
+  issuing a PostHog network request.
+
+  Updated the docs and CLI generation prompts so these providers are discoverable
+  from the integration docs and script-loader setup flows.
+
+## 2.0.1
+
+### Patch Changes
+
+- 748536a: Refine policy category scope handling.
+
 ## 2.0.0
 
 ### Major Changes

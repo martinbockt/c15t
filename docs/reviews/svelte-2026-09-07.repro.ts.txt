@@ -1,0 +1,32 @@
+import { render } from '@testing-library/svelte';
+import { describe, expect, test, vi } from 'vitest';
+import { setCookie } from '../../../../core/src/libs/cookie';
+import ProviderOnlyFixture from '../../__tests__/fixtures/provider-only-fixture.svelte';
+import { readInitialConsentConfig, prefetchInitialConsent } from '../../lib/server';
+
+describe('September integration review reproductions', () => {
+ test('reads the consent cookie written by the client', async () => {
+  const consents = { necessary: true, marketing: false, measurement: true };
+  setCookie('c15t', { consents, consentInfo: { time: Date.now(), type: 'custom' } });
+  expect(document.cookie).toContain('c15t=');
+  const config = await readInitialConsentConfig({ headers: new Headers({ cookie: document.cookie }) });
+  expect(config.initialConsents).toEqual(consents);
+ });
+ test('does not initialize again on a theme-only options replacement', async () => {
+  const init = vi.fn(async () => ({}));
+  const options = { persistence: false as const, transport: { init, async save() { return { ok: true }; } } };
+  const mounted = render(ProviderOnlyFixture, { options });
+  await vi.waitFor(() => expect(init).toHaveBeenCalledTimes(1));
+  await mounted.rerender({ options: { ...options, theme: { slots: { bannerCard: 'new-theme' } } } });
+  await new Promise(resolve => setTimeout(resolve, 50));
+  expect(init).toHaveBeenCalledTimes(1);
+ });
+ test('forwards incoming Global Privacy Control during server prefetch', async () => {
+  const request = vi.fn(async () => new Response('{}', { status: 200 }));
+  await prefetchInitialConsent({ backendURL: 'https://consent.example.test', headers: new Headers({ 'sec-gpc': '1' }), fetch: request as typeof fetch });
+  expect(request).toHaveBeenCalledOnce();
+  const [url, config] = request.mock.calls[0] as unknown as [string, RequestInit];
+  const hasGpc = new Headers(config.headers).get('sec-gpc') === '1' || new URL(url).searchParams.get('gpc') === 'true';
+  expect(hasGpc).toBe(true);
+ });
+});

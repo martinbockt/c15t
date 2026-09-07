@@ -1,19 +1,24 @@
 {
 	"name": "@c15t/iab",
-	"version": "2.0.0",
-	"description": "IAB TCF 2.3 and GPP addon for c15t — opt-in compliance protocol support for programmatic advertising",
+	"version": "2.2.1",
+	"description": "IAB TCF 2.3 addon for c15t with TC String generation, GVL support, and programmatic advertising consent.",
 	"keywords": [
 		"iab",
 		"tcf",
-		"gpp",
 		"consent",
 		"privacy",
 		"gdpr",
 		"cmp",
+		"iab-tcf-2.3",
+		"tc-string",
+		"global-vendor-list",
 		"programmatic-advertising",
 		"transparency-consent-framework"
 	],
 	"homepage": "https://c15t.com/docs/frameworks/react/iab/overview",
+	"bugs": {
+		"url": "https://github.com/c15t/c15t/issues"
+	},
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/c15t/c15t.git",
@@ -48,7 +53,7 @@
 	"scripts": {
 		"prebuild": "genversion --esm --semi src/version.ts",
 		"build": "bun prebuild && rslib build && bun ../../scripts/normalize-dist-types.mjs",
-		"check-types": "tsc --noEmit",
+		"check-types": "bun prebuild && tsc --noEmit",
 		"dev": "sh -c 'bun prebuild && rslib build --no-dts --no-clean && rslib build --watch --no-dts --no-clean'",
 		"fmt": "bun biome format --write . && bun biome check --formatter-enabled=false --linter-enabled=false --write",
 		"lint": "bun biome lint ./src",

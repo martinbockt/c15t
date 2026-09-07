@@ -6,6 +6,7 @@
 import type {
 	Branding,
 	InitOutput,
+	LegalDocumentPolicyType,
 	PolicyConfig,
 	PolicyScopeMode,
 	PolicyUiAction,
@@ -121,7 +122,7 @@ type RequireAtLeastOne<T, Keys extends keyof T = keyof T> = Keys extends keyof T
  * @experimental
  */
 type UnstableLegalDocumentConsentInputBase = {
-	type: 'privacy_policy' | 'terms_and_conditions' | 'dpa';
+	type: LegalDocumentPolicyType;
 	policyId?: string;
 	policyHash?: string;
 	documentSnapshotToken?: string;
@@ -344,7 +345,7 @@ export interface SSRInitialData {
 	/**
 	 * Global Vendor List data for IAB TCF mode.
 	 * - `undefined` means IAB is not active for the request or not enabled on server
-	 * - `null` means the user is in a non-IAB region (204 response from gvl.consent.io)
+	 * - `null` means the user is in a non-IAB region (204 response from gvl.inth.app)
 	 * - `GlobalVendorList` contains the vendor list data from init response
 	 *
 	 * Note: When init returns 200 without gvl, client IAB settings are overridden to disabled.
@@ -435,6 +436,20 @@ export interface StoreConfig {
 	 * Array of script configurations to manage.
 	 */
 	scripts: Script[];
+
+	/**
+	 * Content Security Policy nonce applied to DOM nodes c15t injects.
+	 *
+	 * @remarks
+	 * Set this when your CSP uses a nonce-based policy instead of
+	 * `'unsafe-inline'`. c15t forwards it to the injected theme `<style>`
+	 * element and to every `<script>` element created by the script loader.
+	 *
+	 * A per-script {@link Script.nonce} still takes precedence over this value.
+	 *
+	 * @see https://c15t.com/docs/frameworks/react/components/consent-manager-provider
+	 */
+	nonce?: string;
 }
 
 /**
@@ -592,7 +607,7 @@ export interface StoreOptions extends Partial<StoreConfig> {
 	 * Note: If the server returns 200 without GVL, client IAB settings are
 	 * automatically overridden to disabled (server takes precedence).
 	 *
-	 * In offline/fallback mode, GVL is fetched from gvl.consent.io.
+	 * In offline/fallback mode, GVL is fetched from gvl.inth.app.
 	 *
 	 * This is an opt-in feature with zero bundle impact when not enabled.
 	 *

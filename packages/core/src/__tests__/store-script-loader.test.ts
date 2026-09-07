@@ -100,10 +100,6 @@ describe('Store Script Loader Integration', () => {
 
 		// Mock MutationObserver as a constructor class
 		global.MutationObserver = class MutationObserver {
-			constructor(_callback: MutationCallback) {
-				// Mock implementation
-			}
-
 			observe = vi.fn();
 			disconnect = vi.fn();
 			takeRecords = vi.fn().mockReturnValue([]);
@@ -181,6 +177,27 @@ describe('Store Script Loader Integration', () => {
 	}
 
 	describe('Script Management in Store', () => {
+		it('should load consent-gated scripts when disabled', () => {
+			const onBeforeLoad = vi.fn();
+			const store = createConsentManagerStore(mockConsentManager, {
+				enabled: false,
+				scripts: [
+					{
+						id: 'measurement-callback',
+						category: 'measurement',
+						callbackOnly: true,
+						onBeforeLoad,
+					},
+				],
+			});
+
+			expect(store.getState().has('measurement')).toBe(true);
+			expect(store.getState().isScriptLoaded('measurement-callback')).toBe(
+				true
+			);
+			expect(onBeforeLoad).toHaveBeenCalledOnce();
+		});
+
 		it('should add scripts to the store', () => {
 			const store = createTestStore();
 
@@ -294,7 +311,7 @@ describe('Store Script Loader Integration', () => {
 			expect(loadedIds).not.toContain('marketing-script');
 		});
 
-		it('should load out-of-policy category scripts as permissive', () => {
+		it('should respect denied out-of-policy category scripts in permissive scope', () => {
 			const store = createTestStore({
 				necessary: true,
 				marketing: false,
@@ -310,8 +327,9 @@ describe('Store Script Loader Integration', () => {
 
 			store.getState().setScripts([scripts[1]]);
 
-			expect(store.getState().isScriptLoaded('marketing-script')).toBe(true);
-			expect(store.getState().loadedScripts['marketing-script']).toBe(true);
+			expect(store.getState().consentCategories).toContain('marketing');
+			expect(store.getState().isScriptLoaded('marketing-script')).toBe(false);
+			expect(store.getState().loadedScripts['marketing-script']).not.toBe(true);
 		});
 	});
 
@@ -659,6 +677,67 @@ describe('Store Script Loader Integration', () => {
 			// but analytics script should be unloaded
 			expect(store.getState().isScriptLoaded('gtm-script')).toBe(true);
 			expect(store.getState().isScriptLoaded('analytics-script')).toBe(false);
+		});
+	});
+
+	describe('CSP nonce', () => {
+		function createStoreWithNonce(nonce?: string) {
+			const store = createConsentManagerStore(mockConsentManager, {
+				config: { pkg: 'test', version: '1.0.0', mode: 'test' },
+				nonce,
+			});
+
+			store.setState((state) => ({
+				...state,
+				consents: { ...state.consents, necessary: true },
+				selectedConsents: { ...state.selectedConsents, necessary: true },
+			}));
+
+			return store;
+		}
+
+		function lastCreatedScriptElement() {
+			const mockCreateElement = document.createElement as unknown as {
+				mock: { results: Array<{ value: HTMLScriptElement }> };
+			};
+			const results = mockCreateElement.mock.results;
+
+			return results[results.length - 1]?.value;
+		}
+
+		it('applies the store-level nonce to injected script elements', () => {
+			const store = createStoreWithNonce('store-nonce');
+
+			store.getState().setScripts([scripts[0]]);
+
+			expect(lastCreatedScriptElement()?.nonce).toBe('store-nonce');
+		});
+
+		it('lets a per-script nonce override the store-level nonce', () => {
+			const store = createStoreWithNonce('store-nonce');
+
+			store.getState().setScripts([{ ...scripts[0], nonce: 'script-nonce' }]);
+
+			expect(lastCreatedScriptElement()?.nonce).toBe('script-nonce');
+		});
+
+		it('leaves the nonce unset when the store has none', () => {
+			const store = createStoreWithNonce();
+
+			store.getState().setScripts([scripts[0]]);
+
+			expect(lastCreatedScriptElement()?.nonce).toBe('');
+		});
+
+		it('applies the store-level nonce when reloading a script', () => {
+			const store = createStoreWithNonce('store-nonce');
+
+			store.getState().setScripts([scripts[0]]);
+			store.getState().reloadScript('necessary-script');
+
+			// reloadScript recreates the element, so the most recent one must
+			// still carry the nonce.
+			expect(lastCreatedScriptElement()?.nonce).toBe('store-nonce');
 		});
 	});
 });

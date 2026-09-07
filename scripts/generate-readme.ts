@@ -13,25 +13,25 @@ const __dirname = path.dirname(__filename);
 const DEFAULT_SUPPORT_SECTIONS = [
 	'Join our [Discord community](https://c15t.link/discord)',
 	'Open an issue on our [GitHub repository](https://github.com/c15t/c15t/issues)',
-	'Visit [consent.io](https://consent.io) and use the chat widget',
-	'Contact our support team via email [support@consent.io](mailto:support@consent.io)',
+	'Visit [inth.com](https://inth.com) and use the chat widget',
+	'Contact our support team via email [support@inth.com](mailto:support@inth.com)',
 ];
 
 const DEFAULT_CONTRIBUTING_SECTIONS = [
-	"We're open to all community contributions!",
+	"We're open to all community contributions.",
 	'Read our [Contribution Guidelines](https://c15t.com/docs/oss/contributing)',
 	'Review our [Code of Conduct](https://c15t.com/docs/oss/code-of-conduct)',
 	'Fork the repository',
 	'Create a new branch for your feature',
 	'Submit a pull request',
-	'**All contributions, big or small, are welcome and appreciated!**',
+	'**All contributions, big or small, are welcome and appreciated.**',
 ];
 
 const DEFAULT_SECURITY_SECTION = `## Security
 
 If you believe you have found a security vulnerability in c15t, we encourage you to **_responsibly disclose this and NOT open a public issue_**. We will investigate all legitimate reports.
 
-Our preference is that you make use of GitHub's private vulnerability reporting feature to disclose potential security vulnerabilities in our Open Source Software. To do this, please visit [https://github.com/c15t/c15t/security](https://github.com/c15t/c15t/security) and click the "Report a vulnerability" button.
+Our preference is that you make use of GitHub's private vulnerability reporting feature to disclose potential security vulnerabilities in our open-source software. To do this, please visit [https://github.com/c15t/c15t/security](https://github.com/c15t/c15t/security) and click the "Report a vulnerability" button.
 
 ### Security Policy
 
@@ -77,6 +77,48 @@ const isNonEmpty = (v?: string) => Boolean(v && v.trim().length > 0);
 
 const encodeNpmName = (name: string) => encodeURIComponent(name);
 
+const INTH_ICON_LOGO =
+	'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGZpbGw9Im5vbmUiIHZpZXdCb3g9IjAgMCAzOTMgNDAwIj48cGF0aCBmaWxsPSIjMDAwIiBkPSJNMTgyLjY2MiAwdjM2Ljg5NWgtNTkuMDMxdjgyLjczM2g1OS4wMzF2MzYuODkzSDI3LjQ4MnYtMzYuODkzaDU5LjAzVjM2Ljg5NWgtNTkuMDNWMHpNMzIxLjk0MSA4OS44NVYwaDM1LjM1NXYxNTYuNTIxaC0yNS43MTNsLTg2LjEzNy05MC4zNjR2OTAuMzY0aC0zNS4zNTVWMGgyNi4zNTV6Ii8+PHBhdGggZmlsbD0iIzAwMCIgZmlsbC1ydWxlPSJldmVub2RkIiBkPSJNMzE4LjU3MSAxODUuNzE0aDc0LjI4NlY0MDBIMFYxODUuNzE0aDI3Mi44NTd2LTQ3LjE0M3ptLTI5MS4wOSAyOC45Njl2MzcuMTE4aDU4LjEzN3YxMTkuNjI4aDM2Ljg5NVYyNTEuODAxaDU4LjU4NHYtMzcuMTE4em0xODIuNjEuMjI0djE1Ni41MjJoMzYuODk0VjMxMy41OWg3My4zNDF2NTcuODM5aDM3LjExOFYyMTQuOTA3aC0zNy4xMTh2NjEuNzg4aC03My4zNDF2LTYxLjc4OHoiIGNsaXAtcnVsZT0iZXZlbm9kZCIvPjwvc3ZnPg==';
+
+const INTH_BADGE_QUERY = new URLSearchParams({
+	logo: INTH_ICON_LOGO,
+	color: 'ffc803',
+	labelTextColor: '000000',
+	valueColor: '000000',
+}).toString();
+
+/**
+ * Appends a ShieldCN color mode query parameter to a badge URL.
+ *
+ * @param url - Badge URL that may already include query parameters.
+ * @param mode - Color mode to request from ShieldCN.
+ * @returns The badge URL with the mode query parameter appended.
+ *
+ * Uses `&` instead of `?` when the URL already has query parameters.
+ */
+const withBadgeMode = (url: string, mode: 'light' | 'dark'): string => {
+	const separator = url.includes('?') ? '&' : '?';
+	return `${url}${separator}mode=${mode}`;
+};
+
+/**
+ * Renders a badge link that switches image sources with the user's color scheme.
+ *
+ * @param badge.alt - Accessible text for the badge image.
+ * @param badge.href - Destination URL for the badge link.
+ * @param badge.src - Base ShieldCN badge image URL before color mode is added.
+ * @returns The HTML anchor and picture markup for a theme-aware badge.
+ */
+const renderThemeAwareBadge = ({
+	alt,
+	href,
+	src,
+}: {
+	alt: string;
+	href: string;
+	src: string;
+}): string =>
+	`<a href="${href}"><picture><source media="(prefers-color-scheme: dark)" srcset="${withBadgeMode(src, 'dark')}"><img src="${withBadgeMode(src, 'light')}" alt="${alt}"></picture></a>`;
 // Modify the renderNumberedWithCodeBlocks function to add blank lines around code blocks and lists
 const renderNumberedWithCodeBlocks = (items: string[]) => {
 	let i = 1;
@@ -135,27 +177,55 @@ const baseReadmeTemplate = (rawConfig: PackageReadmeConfig) => {
 	// npm badge name: ensure scoped packages are encoded
 	const npmBadgeName = encodeNpmName(config.packageName);
 	const npmPackageLink = `https://www.npmjs.com/package/${config.packageName}`;
+	const madeByInthBadgeUrl = `https://shieldcn.dev/badge/Made%20By-Inth-ffc803.svg?${INTH_BADGE_QUERY}`;
+	const badgeBlock = `<p>
+${[
+	renderThemeAwareBadge({
+		alt: 'Latest NPM Version',
+		href: npmPackageLink,
+		src: `https://shieldcn.dev/npm/${npmBadgeName}.svg?variant=outline`,
+	}),
+	renderThemeAwareBadge({
+		alt: 'Stars',
+		href: 'https://github.com/c15t/c15t',
+		src: 'https://shieldcn.dev/github/c15t/c15t/stars.svg?variant=outline',
+	}),
+	renderThemeAwareBadge({
+		alt: 'License',
+		href: 'https://github.com/c15t/c15t/blob/main/LICENSE.md',
+		src: 'https://shieldcn.dev/github/c15t/c15t/license.svg?variant=outline',
+	}),
+	renderThemeAwareBadge({
+		alt: 'Discord',
+		href: 'https://c15t.link/discord',
+		src: 'https://shieldcn.dev/discord/1312171102268690493.svg?variant=outline',
+	}),
+	renderThemeAwareBadge({
+		alt: 'Skills',
+		href: 'https://skills.sh/c15t/skills/c15t',
+		src: 'https://shieldcn.dev/skills/c15t/skills/c15t.svg?variant=outline',
+	}),
+	renderThemeAwareBadge({
+		alt: 'Made by Inth',
+		href: `https://inth.com?utm_source=npm&utm_medium=readme&utm_campaign=oss_readme&utm_content=${npmBadgeName}`,
+		src: madeByInthBadgeUrl,
+	}),
+].join('\n')}
+</p>`;
 
 	// Build sections
 	const bannerBlock = `<p align="center">
-  <a href="https://c15t.com?utm_source=github&utm_medium=repopage_${npmBadgeName}" target="_blank" rel="noopener noreferrer">
+  <a href="https://c15t.com?utm_source=npm&utm_medium=readme&utm_campaign=oss_readme&utm_content=${npmBadgeName}" target="_blank" rel="noopener noreferrer">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/c15t-banner-readme-dark.svg" type="image/svg+xml">
       <img src="../../docs/assets/c15t-banner-readme-light.svg" alt="c15t Banner" type="image/svg+xml">
     </picture>
   </a>
-  <br />
-  <h1 align="center">${config.title}</h1>
 </p>
 
-[![GitHub stars](https://img.shields.io/github/stars/c15t/c15t?style=flat-square)](https://github.com/c15t/c15t)
-[![CI](https://img.shields.io/github/actions/workflow/status/c15t/c15t/ci.yml?style=flat-square)](https://github.com/c15t/c15t/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square)](https://github.com/c15t/c15t/blob/main/LICENSE.md)
-[![Discord](https://img.shields.io/discord/1312171102268690493?style=flat-square)](https://c15t.link/discord)
-[![npm version](https://img.shields.io/npm/v/${npmBadgeName}?style=flat-square)](${npmPackageLink})
-[![Top Language](https://img.shields.io/github/languages/top/c15t/c15t?style=flat-square)](https://github.com/c15t/c15t)
-[![Last Commit](https://img.shields.io/github/last-commit/c15t/c15t?style=flat-square)](https://github.com/c15t/c15t/commits/main)
-[![Open Issues](https://img.shields.io/github/issues/c15t/c15t?style=flat-square)](https://github.com/c15t/c15t/issues)`;
+# ${config.title}
+
+${badgeBlock}`;
 
 	let featuresBlock = '';
 	if (config.features && config.features.length > 0) {
@@ -176,11 +246,11 @@ ${config.features.map((f) => `- ${f}`).join('\n')}`;
 Easiest setup with @c15t/cli:
 
 \`\`\`bash
-# Generate schema and code
-pnpm dlx @c15t/cli generate
+# Set up c15t in your project
+pnpm dlx @c15t/cli setup
 # Alternatives:
-# npx @c15t/cli generate
-# bunx --bun @c15t/cli generate
+# npx @c15t/cli setup
+# bunx --bun @c15t/cli setup
 \`\`\`
 
 The CLI will:
@@ -264,7 +334,7 @@ For further information, guides, and examples visit the [reference documentation
 	if (config.customSections) {
 		customSectionsBlock = Object.entries(config.customSections)
 			.map(([heading, content]) => `## ${heading}\n\n${content}`)
-			.join('\n');
+			.join('\n\n');
 	}
 
 	const supportBlock = addSection('## Support', config.support);
@@ -276,7 +346,7 @@ For further information, guides, and examples visit the [reference documentation
 
 ---
 
-**Built by [Inth](https://inth.com?utm_source=github&utm_medium=repopage_${npmBadgeName})**`;
+**Built by [Inth](https://inth.com?utm_source=npm&utm_medium=readme&utm_campaign=oss_readme&utm_content=${npmBadgeName})**`;
 
 	const readmeContent = [
 		bannerBlock,

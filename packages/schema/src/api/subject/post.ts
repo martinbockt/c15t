@@ -5,14 +5,20 @@
  */
 
 import * as v from 'valibot';
-import { policyTypeSchema } from '../../domain/consent-policy';
+import {
+	consentPolicyTypeSchema,
+	legalDocumentPolicyTypeSchema,
+	policyTypeSchema,
+} from '../../domain/consent-policy';
 
 /**
  * Base subject ID validation - must be in sub_xxx format
  */
 export const subjectIdSchema = v.pipe(
 	v.string(),
-	v.regex(/^sub_[1-9A-HJ-NP-Za-km-z]+$/, 'Invalid subject ID format')
+	v.regex(/^sub_[1-9A-HJ-NP-Za-km-z]+$/, 'Invalid subject ID format'),
+	v.description('Client-generated subject ID in sub_xxx format.'),
+	v.examples(['sub_2jv6z8n4q9'])
 );
 
 /**
@@ -23,31 +29,102 @@ const baseSubjectConsentSchema = v.object({
 	/** Client-generated subject ID in sub_xxx format (required) */
 	subjectId: subjectIdSchema,
 	/** External subject ID from your auth system (optional) */
-	externalSubjectId: v.optional(v.string()),
+	externalSubjectId: v.optional(
+		v.pipe(
+			v.string(),
+			v.description('External user ID from your authentication system.'),
+			v.examples(['user_123'])
+		)
+	),
 	/** Identity provider name (optional) */
-	identityProvider: v.optional(v.string()),
+	identityProvider: v.optional(
+		v.pipe(
+			v.string(),
+			v.description('Identity provider name for the external subject ID.'),
+			v.examples(['auth0', 'clerk'])
+		)
+	),
 	/** Domain where consent was given */
-	domain: v.string(),
+	domain: v.pipe(
+		v.string(),
+		v.description('Domain where consent was collected.'),
+		v.examples(['example.com'])
+	),
 	/** Type of consent */
 	type: policyTypeSchema,
 	/** Additional metadata */
-	metadata: v.optional(v.record(v.string(), v.unknown())),
+	metadata: v.optional(
+		v.pipe(
+			v.record(v.string(), v.unknown()),
+			v.description('Additional audit metadata to store with the consent.')
+		)
+	),
 	/** When the consent was given in epoch milliseconds */
-	givenAt: v.number(),
+	givenAt: v.pipe(
+		v.number(),
+		// Keep the timestamp within the range JavaScript Date can represent.
+		// The backend derives an ID with Date#toISOString, which throws for an
+		// out-of-range value.
+		v.minValue(-8_640_000_000_000_000),
+		v.maxValue(8_640_000_000_000_000),
+		v.description('Timestamp when consent was given, in epoch milliseconds.'),
+		v.examples([1_735_689_600_000])
+	),
 	/** Jurisdiction code (e.g., 'GDPR', 'UK_GDPR', 'CCPA') */
-	jurisdiction: v.optional(v.string()),
+	jurisdiction: v.optional(
+		v.pipe(
+			v.string(),
+			v.description("Jurisdiction code resolved for the subject's location."),
+			v.examples(['GDPR', 'UK_GDPR', 'CCPA'])
+		)
+	),
 	/** Consent model used (e.g., 'opt-in', 'opt-out', 'iab') */
-	jurisdictionModel: v.optional(v.string()),
+	jurisdictionModel: v.optional(
+		v.pipe(
+			v.string(),
+			v.description('Consent model used for the resolved jurisdiction.'),
+			v.examples(['opt-in', 'opt-out', 'iab'])
+		)
+	),
 	/** IAB TCF TC String (only for IAB consents) */
-	tcString: v.optional(v.string()),
+	tcString: v.optional(
+		v.pipe(
+			v.string(),
+			v.description('IAB TCF TC string for IAB consent submissions.')
+		)
+	),
 	/** Which UI component collected this consent (e.g., 'banner', 'dialog', 'widget') */
-	uiSource: v.optional(v.string()),
+	uiSource: v.optional(
+		v.pipe(
+			v.string(),
+			v.description('UI surface that collected the consent.'),
+			v.examples(['banner', 'dialog', 'widget'])
+		)
+	),
 	/** Consent action type (e.g., 'all', 'necessary', 'custom') */
-	consentAction: v.optional(v.string()),
+	consentAction: v.optional(
+		v.pipe(
+			v.string(),
+			v.description('User action that produced this consent state.'),
+			v.examples(['all', 'necessary', 'custom'])
+		)
+	),
 	/** Signed policy snapshot token from /init for consistency/auditability */
-	policySnapshotToken: v.optional(v.string()),
+	policySnapshotToken: v.optional(
+		v.pipe(
+			v.string(),
+			v.description('Signed policy snapshot token returned by /init.')
+		)
+	),
 	/** Signed legal-document snapshot token from a rendered document view */
-	documentSnapshotToken: v.optional(v.string()),
+	documentSnapshotToken: v.optional(
+		v.pipe(
+			v.string(),
+			v.description(
+				'Signed legal-document snapshot token from the rendered document view.'
+			)
+		)
+	),
 });
 
 /**
@@ -56,7 +133,11 @@ const baseSubjectConsentSchema = v.object({
 export const subjectCookieBannerInputSchema = v.object({
 	...baseSubjectConsentSchema.entries,
 	type: v.literal('cookie_banner'),
-	preferences: v.record(v.string(), v.boolean()),
+	preferences: v.pipe(
+		v.record(v.string(), v.boolean()),
+		v.description('Consent preferences keyed by category.'),
+		v.examples([{ necessary: true, measurement: true, marketing: false }])
+	),
 });
 
 /**
@@ -68,10 +149,29 @@ export const subjectCookieBannerInputSchema = v.object({
  */
 export const subjectPolicyBasedInputSchema = v.object({
 	...baseSubjectConsentSchema.entries,
-	type: v.picklist(['privacy_policy', 'dpa', 'terms_and_conditions']),
-	policyId: v.optional(v.string()),
-	policyHash: v.optional(v.string()),
-	preferences: v.optional(v.record(v.string(), v.boolean())),
+	type: legalDocumentPolicyTypeSchema,
+	policyId: v.optional(
+		v.pipe(
+			v.string(),
+			v.description(
+				'Internal c15t policy ID. Prefer documentSnapshotToken or policyHash for legal documents when available.'
+			),
+			v.examples(['pol_123'])
+		)
+	),
+	policyHash: v.optional(
+		v.pipe(
+			v.string(),
+			v.description('Release hash for the legal document being accepted.'),
+			v.examples(['sha256:abc123'])
+		)
+	),
+	preferences: v.optional(
+		v.pipe(
+			v.record(v.string(), v.boolean()),
+			v.description('Optional consent preferences keyed by category.')
+		)
+	),
 });
 
 /**
@@ -80,7 +180,12 @@ export const subjectPolicyBasedInputSchema = v.object({
 export const subjectOtherConsentInputSchema = v.object({
 	...baseSubjectConsentSchema.entries,
 	type: v.picklist(['marketing_communications', 'age_verification', 'other']),
-	preferences: v.optional(v.record(v.string(), v.boolean())),
+	preferences: v.optional(
+		v.pipe(
+			v.record(v.string(), v.boolean()),
+			v.description('Optional consent preferences keyed by category.')
+		)
+	),
 });
 
 /**
@@ -100,7 +205,7 @@ export const postSubjectOutputSchema = v.object({
 	consentId: v.string(),
 	domainId: v.string(),
 	domain: v.string(),
-	type: policyTypeSchema,
+	type: consentPolicyTypeSchema,
 	metadata: v.optional(v.record(v.string(), v.unknown())),
 	appliedPreferences: v.optional(v.record(v.string(), v.boolean())),
 	uiSource: v.optional(v.string()),
